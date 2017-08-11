@@ -2,3 +2,5 @@
 **/.idea/tasks.xml
 **/.idea/uiDesigner.xml
 out/
+.gradle/
+build/
