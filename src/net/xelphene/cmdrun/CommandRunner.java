@@ -1,13 +1,12 @@
 package net.xelphene.cmdrun;
 
-import java.io.BufferedReader;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
+import net.xelphene.cmdrun.message.Message;
+
+import java.io.*;
 import java.util.concurrent.LinkedBlockingQueue;
 
 public class CommandRunner {
-    public static int runCommand(String[] argv, StdioReceiver receiver)
+    public static void runCommand(String[] argv, StdioReceiver receiver)
     throws java.io.IOException
     {
         Process proc = Runtime.getRuntime().exec(argv);
@@ -16,10 +15,10 @@ public class CommandRunner {
         InputStream stdout = proc.getInputStream();
         InputStream stderr = proc.getErrorStream();
 
-        BufferedReader stdoutReader = new BufferedReader(new InputStreamReader(stdout));
-        BufferedReader stderrReader = new BufferedReader(new InputStreamReader(stderr));
+        Reader stdoutReader = new InputStreamReader(stdout);
+        Reader stderrReader = new InputStreamReader(stderr);
 
-        LinkedBlockingQueue<IOMessage> queue = new LinkedBlockingQueue<>();
+        LinkedBlockingQueue<Message> queue = new LinkedBlockingQueue<>();
 
         Thread stdoutThread = new Thread(new QueueingReader(
                 queue, stdoutReader, "stdout"));
@@ -34,25 +33,19 @@ public class CommandRunner {
 
         }
 
-        return proc.exitValue();
+        receiver.onExit(proc.exitValue());
     }
 
-    private static void ioLoop(LinkedBlockingQueue<IOMessage> queue, StdioReceiver receiver)
+    private static void ioLoop(LinkedBlockingQueue<Message> queue, StdioReceiver receiver)
             throws InterruptedException
     {
         boolean stderrThreadRunning = true;
         boolean stdoutThreadRunning = true;
 
         while(true) {
-            IOMessage message = queue.take();
-            if( message.getSpecial() ) {
-                if( message.getTag().equals("stdout") ) {
-                    stdoutThreadRunning=false;
-                }
-                if( message.getTag().equals("stderr") ) {
-                    stderrThreadRunning=false;
-                }
-            } else {
+            Message message = queue.take();
+
+            if( message.isIo() ) {
                 if(message.getTag().equals("stdout")) {
                     receiver.onStdoutReceived(message.getData());
                 }
@@ -60,6 +53,20 @@ public class CommandRunner {
                     receiver.onStderrReceived(message.getData());
                 }
             }
+
+            if( message.isEof() || message.isError() ) {
+                if( message.getTag().equals("stdout") ) {
+                    stdoutThreadRunning=false;
+                }
+                if( message.getTag().equals("stderr") ) {
+                    stderrThreadRunning=false;
+                }
+            }
+
+            if( message.isError() ) {
+                receiver.onException(message.getException());
+            }
+
             if( (!stderrThreadRunning) && (!stdoutThreadRunning)) {
                 return;
             }
